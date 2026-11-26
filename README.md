@@ -325,6 +325,31 @@ them. If video memory runs short (stutter, textures missing), try
 `-MipDrop 2` or `-MipDrop 3`. `-Console series-x` selects the larger console
 profile (slower).
 
+### Measured 8 GB NVIDIA performance profile
+
+For an 8 GB NVIDIA card with 32 GB of system RAM, `scripts\run-perf.ps1` (or
+`SETTINGS=scripts/settings-perf.env scripts/run.sh` on Linux) applies a
+measured profile: 1280x720 output, 0.667 render scale, 1536 MB of card-side
+title buffers with a 64 KiB floor, 1536 MB of texture copies, BAR/CPU-mapped
+windows, and the frame-critical threads kept on the fast cores.
+
+```powershell
+# optional once: game-side profile (uncap FPS, RT/grass/SSR off, sharp textures)
+python tools\tweak_game_settings.py --profile sharp
+
+.\scripts\run-perf.ps1 -Exe .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe `
+    -Game "D:\path\to\your\copy\<its executable>"
+```
+
+On the measured 8 GB card this gave a sharp 720p image at **45.3 ms/frame
+median, 50.9 ms p90**, with no exceptions or device removal, using about
+6.1 of 6.9 GB of VRAM. A 640x360 profile reached about 30 fps but was too
+blurry and is not the default. `VICTORY_RENDER_SCALE`, `VICTORY_OWN_UPSCALER`,
+`VICTORY_SEND_KEPT_MB`, and the RT-skip names are read by the newer 8 GB
+fork; older trees ignore those variables and still use the rest of the
+profile. Run `python tools\tweak_game_settings.py --restore` to undo the
+game-side profile.
+
 ### Windows OOM mitigation (now the default in `launch.ps1`)
 
 A Windows run hit `0x8007000E` OOM ("no host list for a state prelude") with
