@@ -6,10 +6,12 @@ Patches, settings and launch scripts that took a console title from about
 [codec-d/cool_fox](https://github.com/codec-d/cool_fox) at commit
 `f4b48ad766ddbec1a1867022cd42f7645b0dd55e`.
 
+Jump to: [Results](#results) · [Linux](#how-to-reproduce-on-linux) · [Windows](#how-to-reproduce-on-windows) · [Known defects](#known-defects-in-this-configuration)
+
 ## What this is and is not
 
-- It is a small set of patches (`patches/`), a settings file and two scripts
-  (`scripts/`), and the measurements behind them (`RESULTS.md`).
+- It is a small set of patches (`patches/`), a settings file and launch scripts
+  for Linux and Windows (`scripts/`), and the measurements behind them (`RESULTS.md`).
 - It is **not** the fork itself: clone cool_fox yourself and apply the patches.
 - It contains **no game files, code, assets, captures or logs**. You need your
   own copy of the title.
@@ -67,7 +69,7 @@ and texture copies start one mip level further down so that this fits in 6 GB.
 The optional patches change nothing unless their switch is set. None of them
 was switched on in the measured runs.
 
-## How to reproduce
+## How to reproduce on Linux
 
 You need: your own copy of the title, a Linux PC with a recent NVIDIA driver,
 a Proton build, `bubblewrap`, systemd (for the memory cap), and to build:
@@ -110,6 +112,58 @@ the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
    the prefix). The log goes to `WORK_DIR/logs/`; at the end the script prints
    the median of the last 40 frame statistics lines. The first run translates
    every shader and is much slower; measure on later runs.
+
+## How to reproduce on Windows
+
+**Not tested by us**: all our runs were under Linux. cool_fox itself is
+developed and played on Windows, and the patches and settings are the same
+there, so this should work, but the figures above are Linux figures. The
+texture and memory settings matter most on cards with 6–8 GB.
+
+You need: Windows 10/11 x64, your own copy of the title, a Direct3D 12 card
+with a recent driver, [Git for Windows](https://git-scm.com/download/win),
+[Rust](https://rustup.rs) (the toolchain is pinned by the fork and installs
+itself), and the Visual Studio Build Tools with "Desktop development with C++"
+and a Windows SDK.
+
+1. Get this repository and the fork at the pinned commit (PowerShell):
+   ```powershell
+   git clone https://github.com/Impre-visible/victory-gtx1660
+   git clone https://github.com/codec-d/cool_fox
+   cd cool_fox
+   git checkout -b gtx1660 f4b48ad766ddbec1a1867022cd42f7645b0dd55e
+   ```
+2. Apply the two patches. `--keep-cr` matters if your Git converts line
+   endings; if `git am` refuses, run `git am --abort`, then
+   `git config core.autocrlf false`, `git reset --hard` and try again:
+   ```powershell
+   git am --keep-cr ..\victory-gtx1660\patches\0001-*.patch ..\victory-gtx1660\patches\0002-*.patch
+   ```
+   (`git am` needs `git config user.name` and `user.email` to be set.)
+3. Build (10–20 minutes the first time):
+   ```powershell
+   cargo build --release --locked -p victory
+   ```
+   The result is `target\release\victory.exe`.
+4. Run with the measured settings:
+   ```powershell
+   ..\victory-gtx1660\scripts\run.ps1 -Exe .\target\release\victory.exe -Game "D:\path\to\your\copy\<its executable>"
+   ```
+   If PowerShell refuses to run the script, start it once with
+   `powershell -ExecutionPolicy Bypass -File ..\victory-gtx1660\scripts\run.ps1 ...`.
+   With 8 GB of video memory or more, add `-MipDrop 2` for sharper textures;
+   `-Console series-x` selects the larger console profile (slower).
+5. The first run translates every shader and compiles pipelines: expect
+   several slow minutes and stutter; judge the speed on the second run. The
+   fork keeps its caches under `%LOCALAPPDATA%\victory\cache` unless
+   `VICTORY_CACHE_DIR` is set (see `victory.example.toml` in the fork).
+
+To change one setting, set it in the same window before calling the script
+(`$env:VICTORY_TEXTURE_MIP_DROP = '1'`): the script keeps values that are
+already set. What each setting does is documented in `scripts/settings.env`.
+If something goes wrong, compare with the fork's own launcher
+(`Play-VIctory.cmd` in cool_fox) to tell a problem of these patches from one
+of the fork.
 
 ## Credits
 
