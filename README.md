@@ -44,6 +44,12 @@ and texture copies start one mip level further down so that this fits in 6 GB.
 
 ## Known defects (in this configuration)
 
+- **Only the first playable scene was measured.** Nothing later in the title
+  (open areas, driving, streets with traffic) has been run by us: expect it to
+  be slower there, as the fork's own README reports for its author's card, and
+  it may show defects we have not seen (a black picture was reported by one
+  user in an open area).
+
 - **Characters' heads are not drawn.** The cause is not found. The same
   defect was seen with unmodified cool_fox on this machine. Ruled out so far:
   the texture settings and the integer buffer view path (`patches/optional/0007`).
