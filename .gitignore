@@ -71,3 +71,13 @@ cool_fox/victory.toml
 *.swp
 Thumbs.db
 .DS_Store
+
+# Python tooling
+__pycache__/
+*.pyc
+
+# victory-agility-patch backups (revert state)
+.victory-agility-patch/
+
+# Local benchmark output (logs, summaries, run settings)
+bench/

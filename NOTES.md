@@ -82,3 +82,42 @@ New run (victory-run3.log) still hit one `0x8007000E` OOM at line 58531 ("no hos
 - `VICTORY_MAX_PRELUDES` env var caps idle preludes kept (default 64; 0: none kept). `PreludeSlot::Drop` only returns a prelude to the pool while `idle.len() < max_preludes()`; above that the prelude is released and its ~5 MB of commit is reclaimed.
 
 Preludes were created on demand and never recycled: every list that ever needed texture transitions owned one prelude for its whole life. With ~630+ lists, that is thousands of allocator+list objects (~5 MB each) all committed at once — exactly the 126→876 growth and ~4.4 GB of commit memory that exhausted Windows commit headroom before OOM. CardWork preludes (sync/check/fetch) were already recycled via `card_done()`; this brings per-list preludes in line.
+
+## Addendum — 2026-11-26, Windows 10 `Game Init` crash (0xc0000005 at title+0xb5a5f8)
+
+Symptom: every raw or `run.ps1` launch under Windows 10 19044 (LTSC) exits
+`-1073741819` (0xC0000005) about 2–3 s in, while the title reports
+`Game State: Game Init`, `Frame: 0`. The same game dump starts with an older
+`lordon1a/victory-laptop-8gb` build that already carried the Agility exports.
+
+Evidence:
+
+- `crashes.log`: `0xc0000005 ... victory-image-b99f...dll+0xb5a5f8 (read 0x68)`.
+  The instruction is `mov r14, [rax+0x68]` in the function at `0xb5a5d0`;
+  `rax = [rcx]` is null because a title-side table lookup returned 0.
+- The run log is full of
+  `root signature: Unsupported bit-flag set (root signature flags c01)` and
+  `host root signature refused error=... 0x80070057`; every host pipeline
+  creation is refused before the crash.
+- Windows 10's in-box D3D12 stops at SM 6.5 and rejects the
+  `CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED` / `SAMPLER_HEAP_DIRECTLY_INDEXED`
+  flags (0x400 / 0x800) that `victory-gpu` sets on every root signature.
+- The old build exports `D3D12SDKPath`/`D3D12SDKVersion`
+  (`apps/victory/src/agility.rs` + `build.rs`) and loads the Agility SDK's
+  `D3D12Core.dll`; the new tree did not.
+
+Fix (ported from the old tree):
+
+- `cool_fox/apps/victory/src/agility.rs` — the two exports, SDK version 620.
+- `cool_fox/apps/victory/build.rs` — finds `D3D12Core.dll` in the tree (or
+  `VICTORY_D3D12_CORE`), copies it beside the exe, and exports the two
+  symbols when it is there.
+- `cool_fox/apps/victory/src/main.rs` — `mod agility;`.
+- `scripts/build.ps1` — copies `D3D12\D3D12Core.dll` into the build output
+  first, and no longer aborts on cargo's stderr under Windows PowerShell 5.1.
+- `tools/victory_agility_patch.py` — applies the same changes to any
+  VIctory-derived fork (idempotent, keeps backups, `--revert`,
+  `--verify-exe`).
+
+Verified: rebuilt exe lists both exports; `run --console series-s --execute`
+runs past frame 512 with 0 exceptions and 0 refused root signatures.

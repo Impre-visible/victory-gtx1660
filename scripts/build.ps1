@@ -25,6 +25,26 @@ Push-Location $src
 try {
     if ($args.Count -eq 0) { $args = @('--release', '--locked', '--features', 'diagnostics') }
 
+    # Windows 10's in-box D3D12 stops at shader model 6.5 and rejects the
+    # heap-indexed root-signature flags every translated pipeline uses
+    # ("Unsupported bit-flag set (root signature flags c01)"). victory then
+    # has no host pipelines and the title crashes at Game Init. The Agility
+    # SDK's D3D12Core.dll fixes that, but apps/victory/build.rs only exports
+    # D3D12SDKVersion/D3D12SDKPath when the DLL is beside the exe at build
+    # time, so put it in the build output first.
+    $buildProfile = if ($args -contains '--profile') { $args[[array]::IndexOf($args, '--profile') + 1] }
+               elseif ($args -contains '--release') { 'release' }
+               else { 'debug' }
+    foreach ($candidate in @((Join-Path $root 'D3D12\D3D12Core.dll'), (Join-Path $src 'D3D12\D3D12Core.dll'))) {
+        if (Test-Path $candidate) {
+            $dest = Join-Path $src "target\x86_64-pc-windows-msvc\$buildProfile\D3D12"
+            New-Item -ItemType Directory -Force -Path $dest | Out-Null
+            Copy-Item $candidate (Join-Path $dest 'D3D12Core.dll') -Force
+            Write-Host "build.ps1: D3D12Core.dll copied to $dest (Windows 10 Agility SDK)"
+            break
+        }
+    }
+
     $start = Get-Date
     Write-Host "build.ps1: cargo build $args"
     Write-Host "  full log: $buildLog"
@@ -36,9 +56,16 @@ try {
     # the redirected pipe handle open, so PowerShell never sees the pipe close.
     # PowerShell's own redirection waits only on the cargo process, so it does
     # not hang. Output still lands in $buildLog; the tail is shown below.
-
+    #
+    # Windows PowerShell 5.1 turns cargo's progress lines on stderr into a
+    # terminating NativeCommandError while $ErrorActionPreference is 'Stop',
+    # which stopped the script after "Compiling ...". Let the command finish
+    # and judge it by its exit code.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     & cargo build -p victory --target x86_64-pc-windows-msvc @args > $buildLog 2>&1
     $code = $LASTEXITCODE
+    $ErrorActionPreference = $previous
 
     $end = Get-Date
     $seconds = ($end - $start).TotalSeconds
