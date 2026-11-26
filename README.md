@@ -1,0 +1,131 @@
+# victory-gtx1660
+
+Patches, settings and launch scripts that took a console title from about
+360–410 ms per frame to about 100 ms per frame (about 10 fps) on a
+**GeForce GTX 1660 6 GB under Linux**, on top of the public fork
+[codec-d/cool_fox](https://github.com/codec-d/cool_fox) at commit
+`f4b48ad766ddbec1a1867022cd42f7645b0dd55e`.
+
+## What this is and is not
+
+- It is a small set of patches (`patches/`), a settings file and two scripts
+  (`scripts/`), and the measurements behind them (`RESULTS.md`).
+- It is **not** the fork itself: clone cool_fox yourself and apply the patches.
+- It contains **no game files, code, assets, captures or logs**. You need your
+  own copy of the title.
+- It is not affiliated with or endorsed by the title's developer or publisher,
+  nor by the authors of VIctory or cool_fox.
+- One machine, a handful of runs: the ~100 ms figure comes from **three runs so
+  far**; two more validation runs are in progress and this table will be updated.
+
+## Results
+
+First playable scene, console profile "Series S". Frame time = the median of
+the fork's own frame statistics line over the steady scene (not an external
+tool). Details per run in [RESULTS.md](RESULTS.md).
+
+| Configuration | ms per frame | fps | Runs |
+|---|---|---|---|
+| cool_fox `f4b48ad`, unmodified, its launcher's settings | 360–410 | 2.4–2.8 | 1 (15 min) |
+| + patches 0001–0002, `LEVELS_ON_DEMAND=0`, `TEXTURE_MIP_DROP=2` | 271–291 | 3.4–3.7 | 5 (7–15 min each) |
+| + `CARD_BUFFERS_MB=1024`, `CARD_WINDOWS_MB=768`, `TEXTURE_MIP_DROP=3` | 100–105 | 9.5–9.9 | 3 so far (4–8 min of scene each; medians 102.5, 100.6, 104.3), all clean |
+
+Machine: GTX 1660 6 GB, Core i7-13700KF, 62 GB RAM, Arch Linux (kernel 6.18
+LTS), NVIDIA driver 620.73.04 (open kernel modules rebuilt with NVIDIA's
+[PR #1542](https://github.com/NVIDIA/open-gpu-kernel-modules/pull/1542) against
+random soft lockups, issue #1540), Wine from GE-Proton11-6 with vkd3d-proton
+from Proton Experimental, Microsoft's `d3dcompiler_47.dll` in the prefix.
+
+The last step moves memory, it does not skip work: copies of the title's
+buffers and memory windows are kept in the card's memory instead of the PC's,
+and texture copies start one mip level further down so that this fits in 6 GB.
+
+## Known defects (in this configuration)
+
+- **Characters' heads are not drawn.** The cause is not found. The same
+  defect was seen with unmodified cool_fox on this machine. Ruled out so far:
+  the texture settings and the integer buffer view path (`patches/optional/0007`).
+- **Ray-traced lighting is not computed**: the fork's ambient-light stand-in
+  (`VICTORY_AMBIENT`) replaces it, so lighting and shadows are approximate.
+- **Textures are one mip level softer** than with `VICTORY_TEXTURE_MIP_DROP=2`
+  (which gives the 271–291 ms row).
+- **The start screen was not passed with the monitors awake** on this setup
+  (unexplained). The runs were made with the screens put to sleep with DPMS
+  (`scripts/dpms.sh`, `DPMS=1` for `run.sh`).
+
+## Patches
+
+| File | What it does | Author |
+|---|---|---|
+| `0001` | Shader translation: every loop gets one branch back. vkd3d-proton's DXIL-to-SPIR-V converter recursed until a stack overflow on loops with several back edges, killing pipeline worker threads. | Impre-visible |
+| `0002` | `VICTORY_TEXTURE_MIP_DROP=0..3`: host copies of large placed textures start that many levels down (off by default). | port by Impre-visible, idea and original code by antikohza |
+| `optional/0003` | Diagnostics: viewport size census with `VICTORY_CARD_SPANS=1`. | Impre-visible |
+| `optional/0004` | `VICTORY_CARD_AWAKE=idle`: keep the clocks up only while the card is idle. | Impre-visible |
+| `optional/0006` | Diagnostics: pipelines left out on purpose are reported as such. | Impre-visible |
+| `optional/0007` | `VICTORY_VIEW_INTEGER=0`: diagnostic switch for typed integer buffer views. | Impre-visible |
+
+The optional patches change nothing unless their switch is set. None of them
+was switched on in the measured runs.
+
+## How to reproduce
+
+You need: your own copy of the title, a Linux PC with a recent NVIDIA driver,
+a Proton build, `bubblewrap`, systemd (for the memory cap), and to build:
+the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
+`clang`, `lld`, `llvm` and [xwin](https://github.com/Jake-Shadle/xwin).
+
+1. Get the fork at the pinned commit:
+   ```sh
+   git clone https://github.com/codec-d/cool_fox
+   cd cool_fox
+   git checkout -b gtx1660 f4b48ad766ddbec1a1867022cd42f7645b0dd55e
+   ```
+2. Apply the patches (`git am` needs a git identity configured):
+   ```sh
+   git am /path/to/victory-gtx1660/patches/*.patch
+   # optional, diagnostics and experiments:
+   git am /path/to/victory-gtx1660/patches/optional/*.patch
+   ```
+3. Build (cross-build from Linux; `xwin splat --use-winsysroot-style` once
+   for the Windows SDK, accepting its licence):
+   ```sh
+   XWIN_DIR=/path/to/xwin-splat /path/to/victory-gtx1660/scripts/build.sh
+   ```
+   The result is `target/x86_64-pc-windows-msvc/release/victory.exe`.
+4. Prepare a Wine prefix: copy `d3d12.dll` and `d3d12core.dll` from
+   vkd3d-proton (we used the one shipped with Proton Experimental) and
+   `dxgi.dll` from DXVK into its `system32`, and install Microsoft's
+   `d3dcompiler_47.dll` (`winetricks d3dcompiler_47`); without it the
+   fork's indirect-argument clamp shader does not compile under Wine and
+   indirect draws are dropped.
+5. Run with the settings of `scripts/settings.env`:
+   ```sh
+   VICTORY_EXE=/path/to/cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe \
+   GAME_EXE=/path/to/your/own/copy/<its executable> \
+   PROTON_DIR=/path/to/GE-Proton11-6/files \
+   WINEPREFIX=/path/to/prefix WORK_DIR=/path/to/workdir DPMS=1 \
+   /path/to/victory-gtx1660/scripts/run.sh 600
+   ```
+   The run is sandboxed (no network, read-only system except `WORK_DIR` and
+   the prefix). The log goes to `WORK_DIR/logs/`; at the end the script prints
+   the median of the last 40 frame statistics lines. The first run translates
+   every shader and is much slower; measure on later runs.
+
+## Credits
+
+- [VIctory](https://github.com/Marvisak/VIctory) by Marvisak and its
+  contributors: the compatibility layer itself.
+- [codec-d/cool_fox](https://github.com/codec-d/cool_fox) by codec_d: the fork
+  these patches apply to, and its launcher's settings.
+- [avatarmanz/VIctory-7900XTX](https://github.com/avatarmanz/VIctory-7900XTX):
+  the tree cool_fox derives from.
+- [fxceless/victory-fork](https://github.com/fxceless/victory-fork): the fork
+  that one started from.
+- antikohza: the texture mip drop (ztrx PR #84, after Marvisak/VIctory#2146),
+  ported here in patch 0002.
+- The patches were written with [Claude Code](https://claude.com/claude-code).
+
+## Licence
+
+GPL-3.0-or-later, as VIctory and cool_fox; the patches are derived work of
+cool_fox. See [LICENSE](LICENSE).

@@ -1,0 +1,419 @@
+From fcfdca5a1c25aa1d0bb5e1b67a674c97488d130d Mon Sep 17 00:00:00 2001
+From: Impre-visible <69050895+Impre-visible@users.noreply.github.com>
+Date: Wed, 25 Nov 2026 11:24:18 +0100
+Subject: [PATCH 1/2] shader: every loop has one branch back (trial):
+ dxil-spirv recursed without end on multi-latch loops with wave reads
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TsTmwWj9LVy4o3qDH52Jas
+Signed-off-by: Impre-visible <69050895+Impre-visible@users.noreply.github.com>
+(cherry picked from commit ec2e689 of the author's VIctory branch)
+
+Onto cool_fox: Module::layout() keeps cool_fox dc155d2 (an empty latch whose
+phis are all dead still folds).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TsTmwWj9LVy4o3qDH52Jas
+Signed-off-by: Impre-visible <69050895+Impre-visible@users.noreply.github.com>
+---
+ crates/victory-shader/src/emit/bitcode.rs     | 248 ++++++++++++++----
+ crates/victory-shader/src/emit/bitcode/opt.rs | 109 ++++++++
+ crates/victory-shader/src/emit/shader.rs      |   1 +
+ 3 files changed, 307 insertions(+), 51 deletions(-)
+
+diff --git a/crates/victory-shader/src/emit/bitcode.rs b/crates/victory-shader/src/emit/bitcode.rs
+index 18e0a31..699c00c 100644
+--- a/crates/victory-shader/src/emit/bitcode.rs
++++ b/crates/victory-shader/src/emit/bitcode.rs
+@@ -517,6 +517,202 @@ impl Module {
+         self.named.push((name.into(), nodes));
+     }
+ 
++    /// The blocks reached from the entry, in reverse postorder: every block
++    /// after its forward predecessors.
++    fn reverse_postorder(&self) -> Vec<usize> {
++        let succs = |b: usize| successors(self.blocks[b].term);
++        let mut seen = vec![false; self.blocks.len()];
++        let mut post = Vec::new();
++        let mut stack = vec![(0usize, 0usize)];
++        seen[0] = true;
++        while let Some(top) = stack.last_mut() {
++            let (b, k) = *top;
++            top.1 += 1;
++            match succs(b).get(k) {
++                Some(&s) if !seen[s] => {
++                    seen[s] = true;
++                    stack.push((s, 0));
++                }
++                Some(_) => {}
++                None => {
++                    post.push(b);
++                    stack.pop();
++                }
++            }
++        }
++        post.reverse();
++        post
++    }
++
++    /// The blocks in the order `write` gives them, and per block the
++    /// (predecessor, loop header) of an empty latch folded into its
++    /// predecessor.
++    ///
++    /// Blocks are laid out in reverse postorder, so every block follows its
++    /// forward predecessors (drivers take a branch to an earlier block for a
++    /// loop's back edge). An empty latch (only a branch back to its loop
++    /// header) is folded into its one predecessor, so the exiting block is
++    /// the latch as in DXC's loops; the AMD driver hangs on divergent loops
++    /// otherwise. A fold never gives a block a second branch back, nor a
++    /// header a second block that branches back to it (see
++    /// [`Module::one_back_edge_each`]): two latches folded into one block
++    /// that leaves two loops at once made vkd3d-proton's DXIL converter
++    /// recurse without end.
++    fn layout(&self) -> (Vec<usize>, Vec<Option<(usize, usize)>>) {
++        let succs = |b: usize| successors(self.blocks[b].term);
++        // Phis nothing reads do not keep a latch from folding (cool_fox dc155d2).
++        let live = self.live();
++        let post = self.reverse_postorder();
++        let mut pos = vec![u64::MAX; self.blocks.len()];
++        for (n, &b) in post.iter().enumerate() {
++            pos[b] = n as u64;
++        }
++        let mut preds = vec![Vec::new(); self.blocks.len()];
++        // Per header: the blocks that branch back to it (once per edge).
++        let mut latches = vec![0u32; self.blocks.len()];
++        for &b in &post {
++            for &s in succs(b).iter() {
++                preds[s].push(b);
++                if pos[s] <= pos[b] {
++                    latches[s] += 1;
++                }
++            }
++        }
++        let goes_back = |b: usize| succs(b).iter().any(|&s| pos[s] <= pos[b]);
++        let mut fold: Vec<Option<(usize, usize)>> = vec![None; self.blocks.len()];
++        // Per predecessor: the latch folded into it.
++        let mut into: Vec<Option<usize>> = vec![None; self.blocks.len()];
++        for &b in &post {
++            let blk = &self.blocks[b];
++            if let (Some(Term::Br(h)), true, [p]) = (
++                blk.term,
++                blk.phis.iter().all(|&i| !live[i as usize]) && blk.body.is_empty(),
++                &preds[b][..],
++            ) && pos[h] < pos[b]
++                && !succs(*p).contains(&h)
++                && latches[h] == 1
++                && !goes_back(*p)
++            {
++                // Of two latches below one block, the inner loop's (the
++                // later header) is folded.
++                match into[*p] {
++                    Some(other) if fold[other].is_some_and(|(_, oh)| pos[oh] >= pos[h]) => continue,
++                    Some(other) => fold[other] = None,
++                    None => {}
++                }
++                into[*p] = Some(b);
++                fold[b] = Some((*p, h));
++            }
++        }
++        let layout: Vec<usize> = post.into_iter().filter(|&b| fold[b].is_none()).collect();
++        (layout, fold)
++    }
++
++    /// Gives every loop header one block that branches back to it, and every
++    /// block at most one branch back to a loop header, as DXC's loops have
++    /// them: a block that branches back to several headers (a latch of an
++    /// inner and an outer loop at once) keeps the branch to the innermost
++    /// header and reaches each other one through a new block, and the
++    /// latches of a header with several branch to one new latch, which
++    /// takes the header's joins from them. The program does the same.
++    ///
++    /// vkd3d-proton's DXIL converter (dxil-spirv) assumes one back edge per
++    /// block and per header in the passes it runs before its structurizer
++    /// (after a subgroup shuffle such as `WaveReadLaneAt`): with two, its
++    /// dominator recomputation recursed until the stack overflowed and the
++    /// pipeline was never made.
++    pub(crate) fn one_back_edge_each(&mut self) {
++        // A branch to `from` goes to `to` instead.
++        fn retarget(m: &mut Module, b: usize, from: usize, to: usize) {
++            let swap = |t: usize| if t == from { to } else { t };
++            m.blocks[b].term = match m.blocks[b].term {
++                Some(Term::Br(t)) => Some(Term::Br(swap(t))),
++                Some(Term::CondBr(c, t, f)) => Some(Term::CondBr(c, swap(t), swap(f))),
++                t => t,
++            };
++        }
++        let back = |m: &Module, pos: &[usize], b: usize| -> Vec<usize> {
++            let mut hs: Vec<usize> = successors(m.blocks[b].term)
++                .iter()
++                .copied()
++                .filter(|&s| pos[s] <= pos[b])
++                .collect();
++            hs.dedup();
++            hs
++        };
++        let positions = |m: &Module| {
++            let order = m.reverse_postorder();
++            let mut pos = vec![usize::MAX; m.blocks.len()];
++            for (k, &b) in order.iter().enumerate() {
++                pos[b] = k;
++            }
++            (order, pos)
++        };
++        // A block with several branches back.
++        let (order, pos) = positions(self);
++        for &b in &order {
++            let mut hs = back(self, &pos, b);
++            if hs.len() < 2 {
++                continue;
++            }
++            hs.sort_by_key(|&h| pos[h]);
++            hs.pop();
++            for h in hs {
++                let c = self.new_block();
++                self.terminate(c, Term::Br(h));
++                retarget(self, b, h, c);
++                for k in 0..self.blocks[h].phis.len() {
++                    let p = self.blocks[h].phis[k] as usize;
++                    if let Op::Phi(incoming) = &mut self.insts[p].op {
++                        for x in incoming.iter_mut().filter(|x| x.1 == b) {
++                            x.1 = c;
++                        }
++                    }
++                }
++            }
++        }
++        // A header with several latches.
++        let (order, pos) = positions(self);
++        let mut latches: Vec<Vec<usize>> = vec![Vec::new(); self.blocks.len()];
++        for &b in &order {
++            for h in back(self, &pos, b) {
++                latches[h].push(b);
++            }
++        }
++        for (h, ls) in latches.into_iter().enumerate() {
++            if ls.len() < 2 {
++                continue;
++            }
++            let c = self.new_block();
++            self.terminate(c, Term::Br(h));
++            for &l in &ls {
++                retarget(self, l, h, c);
++            }
++            for k in 0..self.blocks[h].phis.len() {
++                let p = self.blocks[h].phis[k];
++                let Op::Phi(incoming) =
++                    std::mem::replace(&mut self.insts[p as usize].op, Op::Phi(Vec::new()))
++                else {
++                    unreachable!("a join")
++                };
++                let (round, rest): (Vec<_>, Vec<_>) =
++                    incoming.into_iter().partition(|x| ls.contains(&x.1));
++                let v = match round.first() {
++                    Some(&(v, _)) if round.iter().all(|x| x.0 == v) => v,
++                    _ => {
++                        let ty = self.insts[p as usize].ty;
++                        let q = self.phi(c, ty);
++                        self.set_phi(q, round);
++                        q
++                    }
++                };
++                let mut incoming = rest;
++                incoming.push((v, c));
++                self.insts[p as usize].op = Op::Phi(incoming);
++            }
++        }
++    }
++
+     /// The module as bitcode.
+     /// Which instructions are written: every body instruction, the branch
+     /// conditions, and whatever they read, transitively (a phi nothing reads
+@@ -685,57 +881,7 @@ impl Module {
+         // Phis nothing reads are left out (one register per phi makes many).
+         let live = self.live();
+ 
+-        // Blocks are laid out in reverse postorder, so every block follows
+-        // its forward predecessors (drivers take a branch to an earlier
+-        // block for a loop's back edge).
+-        let succs = |b: usize| successors(self.blocks[b].term);
+-        let mut seen = vec![false; self.blocks.len()];
+-        let mut post = Vec::new();
+-        let mut stack = vec![(0usize, 0usize)];
+-        seen[0] = true;
+-        while let Some(top) = stack.last_mut() {
+-            let (b, k) = *top;
+-            top.1 += 1;
+-            match succs(b).get(k) {
+-                Some(&s) if !seen[s] => {
+-                    seen[s] = true;
+-                    stack.push((s, 0));
+-                }
+-                Some(_) => {}
+-                None => {
+-                    post.push(b);
+-                    stack.pop();
+-                }
+-            }
+-        }
+-        post.reverse();
+-        let mut pos = vec![u64::MAX; self.blocks.len()];
+-        for (n, &b) in post.iter().enumerate() {
+-            pos[b] = n as u64;
+-        }
+-        // An empty latch (only a branch back to its loop header) is folded
+-        // into its one predecessor, so the exiting block is the latch as in
+-        // DXC's loops; the AMD driver hangs on divergent loops otherwise.
+-        let mut preds = vec![Vec::new(); self.blocks.len()];
+-        for &b in &post {
+-            for &s in succs(b).iter() {
+-                preds[s].push(b);
+-            }
+-        }
+-        let mut fold = vec![None; self.blocks.len()];
+-        for &b in &post {
+-            let blk = &self.blocks[b];
+-            if let (Some(Term::Br(h)), true, [p]) = (
+-                blk.term,
+-                blk.phis.iter().all(|&i| !live[i as usize]) && blk.body.is_empty(),
+-                &preds[b][..],
+-            ) && pos[h] < pos[b]
+-                && !succs(*p).contains(&h)
+-            {
+-                fold[b] = Some((*p, h));
+-            }
+-        }
+-        let layout: Vec<usize> = post.into_iter().filter(|&b| fold[b].is_none()).collect();
++        let (layout, fold) = self.layout();
+         let mut pos = vec![u64::MAX; self.blocks.len()];
+         for (n, &b) in layout.iter().enumerate() {
+             pos[b] = n as u64;
+diff --git a/crates/victory-shader/src/emit/bitcode/opt.rs b/crates/victory-shader/src/emit/bitcode/opt.rs
+index d3ce5cd..8fe9d20 100644
+--- a/crates/victory-shader/src/emit/bitcode/opt.rs
++++ b/crates/victory-shader/src/emit/bitcode/opt.rs
+@@ -2225,4 +2225,113 @@ mod tests {
+         // The programs are of the wasteful kind: the passes find work.
+         assert!(removed > 4000, "{removed} instructions removed");
+     }
++
++    /// As written: the most branches back one block makes, and the most
++    /// blocks that branch back to one header.
++    fn back_edges(m: &Module) -> (usize, usize) {
++        let (layout, fold) = m.layout();
++        let mut pos = vec![usize::MAX; m.blocks.len()];
++        for (n, &b) in layout.iter().enumerate() {
++            pos[b] = n;
++        }
++        let mut into = vec![0; m.blocks.len()];
++        let mut most = 0;
++        for &b in &layout {
++            let mut to: Vec<usize> = successors(m.blocks[b].term)
++                .iter()
++                .map(|&t| fold[t].map_or(t, |(_, h)| h))
++                .filter(|&t| pos[t] <= pos[b])
++                .collect();
++            to.dedup();
++            most = most.max(to.len());
++            to.iter().for_each(|&h| into[h] += 1);
++        }
++        (most, into.into_iter().max().unwrap_or(0))
++    }
++
++    #[test]
++    fn every_loop_has_one_branch_back() {
++        let mut k = kit();
++        let i32t = k.m.int(32);
++        let fty = k.m.func_ty(i32t, vec![i32t, i32t]);
++        let input =
++            k.m.function("dx.op.loadInput.i32", fty, Some(Attr::ReadNone), false);
++        let Kit {
++            mut m, b, writes, ..
++        } = k;
++        let [h1, h2, exit, h3, odd, even, e3, h4, h5, c1, c2, e4] =
++            std::array::from_fn(|_| m.new_block());
++        let (zero, one, two, three) = (m.i32(0), m.i32(1), m.i32(2), m.i32(3));
++        let x = m.call(b, input, vec![zero, one]);
++        m.terminate(b, Term::Br(h1));
++        // An inner loop whose latch is the outer loop's latch too.
++        let i = m.phi(h1, i32t);
++        let i1 = m.bin(h1, Bin::Add, i, one);
++        m.call(h1, writes, vec![i1, x]);
++        let out = m.cmp(h1, pred::IUGE, i1, three);
++        m.terminate(h1, Term::CondBr(out, exit, h2));
++        let j = m.phi(h2, i32t);
++        let j1 = m.bin(h2, Bin::Add, j, one);
++        m.call(h2, writes, vec![j1, i]);
++        let more = m.cmp(h2, pred::IULT, j1, two);
++        m.terminate(h2, Term::CondBr(more, h2, h1));
++        m.set_phi(i, vec![(zero, b), (i1, h2)]);
++        m.set_phi(j, vec![(zero, h1), (j1, h2)]);
++        m.terminate(exit, Term::Br(h3));
++        // A loop with two latches, which carry different values round.
++        let kk = m.phi(h3, i32t);
++        let k1 = m.bin(h3, Bin::Add, kk, one);
++        let low = m.bin(h3, Bin::And, k1, one);
++        let is_odd = m.cmp(h3, pred::NE, low, zero);
++        m.terminate(h3, Term::CondBr(is_odd, odd, even));
++        let ka = m.bin(odd, Bin::Add, k1, two);
++        let seven = m.i32(7);
++        let again = m.cmp(odd, pred::IULT, ka, seven);
++        m.terminate(odd, Term::CondBr(again, h3, e3));
++        let kb = m.bin(even, Bin::Mul, k1, three);
++        m.call(even, writes, vec![kb, kk]);
++        let thirty = m.i32(30);
++        let again = m.cmp(even, pred::IULT, kb, thirty);
++        m.terminate(even, Term::CondBr(again, h3, e3));
++        m.set_phi(kk, vec![(zero, exit), (ka, odd), (kb, even)]);
++        let last = m.phi(e3, i32t);
++        m.set_phi(last, vec![(ka, odd), (kb, even)]);
++        m.call(e3, writes, vec![last, x]);
++        m.terminate(e3, Term::Br(h4));
++        // One block above the empty latches of an inner and an outer loop.
++        let l = m.phi(h4, i32t);
++        let l1 = m.bin(h4, Bin::Add, l, one);
++        let done = m.cmp(h4, pred::IUGE, l1, three);
++        m.terminate(h4, Term::CondBr(done, e4, h5));
++        let q = m.phi(h5, i32t);
++        let q1 = m.bin(h5, Bin::Add, q, one);
++        m.call(h5, writes, vec![q1, l1]);
++        let inner = m.cmp(h5, pred::IULT, q1, two);
++        m.terminate(h5, Term::CondBr(inner, c1, c2));
++        m.terminate(c1, Term::Br(h5));
++        m.terminate(c2, Term::Br(h4));
++        m.set_phi(l, vec![(zero, e3), (l1, c2)]);
++        m.set_phi(q, vec![(zero, h4), (q1, c1)]);
++        m.terminate(e4, Term::Ret);
++
++        let inputs: Vec<Vec<u32>> = vec![vec![0; 7], (0..7).collect(), vec![u32::MAX; 7]];
++        let before: Vec<_> = inputs.iter().map(|i| run(&m, i)).collect();
++        assert!(
++            before
++                .iter()
++                .all(|t| t.last().is_some_and(|e| e.0 == "ret"))
++        );
++        assert_eq!(back_edges(&m), (2, 2), "both shapes, as made");
++        // Of the two empty latches below one block, the inner loop's is
++        // folded into it, the outer loop's stays.
++        let (_, fold) = m.layout();
++        assert_eq!((fold[c1], fold[c2]), (Some((h5, h5)), None));
++
++        m.one_back_edge_each();
++        assert_eq!(back_edges(&m), (1, 1));
++        for (i, want) in inputs.iter().zip(&before) {
++            assert_eq!(&run(&m, i), want);
++        }
++        m.write();
++    }
+ }
+diff --git a/crates/victory-shader/src/emit/shader.rs b/crates/victory-shader/src/emit/shader.rs
+index 4d5f921..6e00dba 100644
+--- a/crates/victory-shader/src/emit/shader.rs
++++ b/crates/victory-shader/src/emit/shader.rs
+@@ -878,6 +878,7 @@ impl Shader {
+         self.m.named_md("dx.shaderModel", vec![sm]);
+         self.m.named_md("dx.entryPoints", vec![entry]);
+ 
++        self.m.one_back_edge_each();
+         let bitcode = self.m.write();
+         super::bitcode::census::note(&self.m, &bitcode);
+         let mut dxil = Vec::with_capacity(24 + bitcode.len());

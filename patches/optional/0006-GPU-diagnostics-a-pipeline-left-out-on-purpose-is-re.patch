@@ -1,0 +1,40 @@
+From 21a01f3b74ff44838e094e13073f398220bb0a5d Mon Sep 17 00:00:00 2001
+From: Impre-visible <69050895+Impre-visible@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 09:52:00 +0100
+Subject: [PATCH 6/7] GPU (diagnostics): a pipeline left out on purpose is
+ reported as such, not as "being made"
+
+missing() answered "being made" for every pipeline without a made host
+pipeline, and a pipeline left out by left_out() (the ray-tracing resolves
+and ray activation without the structure builder) is never queued nor
+made: each frame's ~600 dropped indirect dispatches read as pipelines
+still in the making while the frame line said none were (run z3a:
+"dropped 597.0/frame without a host pipeline: being made" next to
+"(0 being made) and 596 indirect"). They now name left_out's reason.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TsTmwWj9LVy4o3qDH52Jas
+Signed-off-by: Impre-visible <69050895+Impre-visible@users.noreply.github.com>
+---
+ crates/victory-gpu/src/pipeline/make.rs | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/crates/victory-gpu/src/pipeline/make.rs b/crates/victory-gpu/src/pipeline/make.rs
+index 5c61fc5..4251c14 100644
+--- a/crates/victory-gpu/src/pipeline/make.rs
++++ b/crates/victory-gpu/src/pipeline/make.rs
+@@ -152,8 +152,14 @@ impl Pending {
+ 
+ /// Why a pipeline has no host pipeline (diagnostics): its shaders that do
+ /// not translate, else "refused" or "being made"; `None` if it has one.
++/// A pipeline left out on purpose ([`left_out`]) is never made: it says
++/// why, not "being made" (each frame's ~600 indirect dispatches of the
++/// ray-tracing resolves passed for pipelines in the making, run z3a).
+ #[cfg(feature = "diagnostics")]
+ pub(crate) fn missing(p: &Pending) -> Option<String> {
++    if let Some(why) = p.left_out {
++        return Some(why.to_owned());
++    }
+     match p.made.get() {
+         Some(Some(_)) => None,
+         None => Some("being made".into()),
