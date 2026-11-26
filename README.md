@@ -234,6 +234,29 @@ Verify it exists:
 ls cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe
 ```
 
+#### Windows build troubleshooting
+
+If `build.ps1` fails, check these in order:
+
+1. **Rust toolchain not installed.** The repo pins Rust 1.98.1 via `cool_fox/rust-toolchain.toml`. Run:
+   ```powershell
+   rustup toolchain install 1.98.1 --profile minimal
+   rustup target add x86_64-pc-windows-msvc
+   ```
+   Then confirm `cargo --version` and `rustc --version` work.
+
+2. **Missing linker (`NativeCommandError`, `link.exe` not found).** Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with the **"Desktop development with C++"** workload, which includes `link.exe` and the Windows SDK. Then restart PowerShell and re-run `build.ps1`.
+
+3. **Cargo can't download crates (network/registry error).** If you're behind a proxy or offline at build time, set a cargo proxy or pre-fetch crates. The `--locked` flag requires every crate to already be in `%USERPROFILE%\.cargo\registry`.
+
+4. **Windows long-path issues.** Rust paths can exceed Windows' 260-char limit. Enable long paths:
+   ```powershell
+   Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -Value 1
+   ```
+   Then reboot and retry.
+
+5. **Cargo errors on `proc-macro2` or similar early crates.** Usually means the Rust toolchain or the `x86_64-pc-windows-msvc` target is partially installed. Re-run step 1 and make sure both are installed for the same user account that runs `build.ps1`.
+
 ### Step 3 — Run the game
 
 Launch **only** through `scripts\run.cmd` (or `run.ps1`) so the memory
