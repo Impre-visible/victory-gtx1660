@@ -117,6 +117,15 @@ the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
 
 **Not tested by us**: all our runs were under Linux.
 
+> **The patches alone do not give the ~100 ms figure.** Most of the gain comes
+> from three settings (`VICTORY_CARD_BUFFERS_MB=1024`, `VICTORY_CARD_WINDOWS_MB=768`,
+> `VICTORY_TEXTURE_MIP_DROP=3`, with `VICTORY_LEVELS_ON_DEMAND=0`). Start the
+> title **only with `scripts\run.cmd` (or `run.ps1`)**. Starting `victory.exe`
+> yourself, or cool_fox's own `Play-VIctory.cmd`, runs without them
+> (`Play-VIctory.cmd` also sets `VICTORY_LEVELS_ON_DEMAND=1`): that is the
+> 271–291 ms (about 3.5 fps) or 360–410 ms (about 2.5 fps) row of the table
+> above, not the 100 ms one.
+
 > **Reported problem on Windows with GTX 16 / RTX 20 cards (Turing):** a tester
 > with a GTX 1660 SUPER on Windows 11 reports that the fork does not get past
 > the start screens there with NVIDIA's driver, while it does with the software
@@ -150,17 +159,24 @@ and a Windows SDK.
    git am --keep-cr ..\victory-gtx1660\patches\0001-*.patch ..\victory-gtx1660\patches\0002-*.patch
    ```
    (`git am` needs `git config user.name` and `user.email` to be set.)
-3. Build (10–20 minutes the first time):
+3. Build (10–20 minutes the first time), with the diagnostics feature as in
+   our runs (it prints the frame statistics line used to measure; without it
+   there is no such line in the log):
    ```powershell
-   cargo build --release --locked -p victory
+   cargo build --release --locked -p victory --features diagnostics
    ```
    The result is `target\release\victory.exe`.
-4. Run with the measured settings:
+4. Run with the measured settings (`run.cmd` starts `run.ps1` without
+   touching PowerShell's script policy):
    ```powershell
-   ..\victory-gtx1660\scripts\run.ps1 -Exe .\target\release\victory.exe -Game "D:\path\to\your\copy\<its executable>"
+   ..\victory-gtx1660\scripts\run.cmd -Exe .\target\release\victory.exe -Game "D:\path\to\your\copy\<its executable>"
    ```
-   If PowerShell refuses to run the script, start it once with
-   `powershell -ExecutionPolicy Bypass -File ..\victory-gtx1660\scripts\run.ps1 ...`.
+   The script first clears every `VICTORY_*` variable left in your
+   environment (other forks' guides set some system-wide), then prints
+   "victory-gtx1660: settings in effect:" with every value. **Check that this
+   list shows `VICTORY_CARD_BUFFERS_MB=1024`, `VICTORY_CARD_WINDOWS_MB=768`,
+   `VICTORY_TEXTURE_MIP_DROP=3` and `VICTORY_LEVELS_ON_DEMAND=0`** before
+   comparing frame rates.
    With 8 GB of video memory or more, add `-MipDrop 2` for sharper textures;
    `-Console series-x` selects the larger console profile (slower).
 5. The first run translates every shader and compiles pipelines: expect
@@ -168,9 +184,28 @@ and a Windows SDK.
    fork keeps its caches under `%LOCALAPPDATA%\victory\cache` unless
    `VICTORY_CACHE_DIR` is set (see `victory.example.toml` in the fork).
 
-To change one setting, set it in the same window before calling the script
-(`$env:VICTORY_TEXTURE_MIP_DROP = '1'`): the script keeps values that are
-already set. What each setting does is documented in `scripts/settings.env`.
+To change one setting, set it in the same window and call the script with
+`-KeepEnv` (`$env:VICTORY_TEXTURE_MIP_DROP = '1'`; without `-KeepEnv` the
+script clears it); it then names every value that differs from the measured
+one. What each setting does is documented in `scripts/settings.env`.
+
+**How to compare frame rates with ours.** Our figures are the median of the
+log's frame statistics line (`... fps, ... ms/frame (... preparing ...)`,
+diagnostics build, `VICTORY_LOG=info`, which `run.ps1` sets) over the steady
+first scene, Series S profile, second run or later (warm caches), with no
+frame generation. A figure from another fork is often taken differently:
+some use the Series X profile with a capped output resolution
+(`VICTORY_RESOLUTION=1920x1080`), a lower render scale, skipped ray-tracing
+passes, a window-title counter, or a driver's frame generation (which
+doubles what you see, not what the game computes). Compare like with like.
+
+**Whether the memory settings took effect** shows in the same log (diagnostics
+build): the line "host copies in the card's memory: N copies X MB ..." should
+read about 1,000 MB or more once the scene runs. Copies go to the card only
+while a fifth of the card's memory budget is free; on Windows that budget is
+what the system grants this process (other programs and the desktop take their
+share), so on a 6 GB card fewer copies may fit than under Linux. If X stays
+near 500 MB, close other programs that use the GPU or try `-MipDrop 3`.
 If something goes wrong, compare with the fork's own launcher
 (`Play-VIctory.cmd` in cool_fox) to tell a problem of these patches from one
 of the fork.

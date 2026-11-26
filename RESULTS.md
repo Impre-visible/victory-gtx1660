@@ -74,6 +74,9 @@ that of 0001–0002.
 Picture: as B, textures one mip level softer (drop 3 instead of 2); heads still
 not drawn. Four further runs of 420 s with the same settings were clean, with medians of 100.6, 104.3, 106.4 and 101.4 ms per frame (264 to 320 s of scene each). The only driver messages were logged at the moment each run was stopped.
 
+One further run with `VICTORY_TEXTURE_MIP_DROP=2` (sharper textures) and the same memory settings gave 97–100 ms per frame, clean; with drop 1 it was 115 ms (6 GB no longer hold the copies). Drop 2 is not yet validated on five runs.
+
+
 
 ## What the gain from B to C is
 
