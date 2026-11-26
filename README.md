@@ -44,6 +44,16 @@ and texture copies start one mip level further down so that this fits in 6 GB.
 
 ## Known defects (in this configuration)
 
+- **Cards with less than 6 GB are below what was measured.** The memory
+  settings reserve about 1.8 GB of video memory for copies of the title's
+  buffers on top of textures; on 6 GB that just fits (one texture level
+  sharper already costs 15 %). On a 4 GB card they overflow: one user reports
+  about 3 fps and a black picture. Untested starting point for 4 GB:
+  `VICTORY_TEXTURE_MIP_DROP=3`, `VICTORY_CARD_BUFFERS_MB=512`,
+  `VICTORY_CARD_WINDOWS_MB=256` (set them before launching; on Windows add
+  `-KeepEnv` to `run.cmd`). With 8 GB or more, try
+  `VICTORY_CARD_WINDOWS_MB=1536` and `VICTORY_TEXTURE_MIP_DROP=2` or `1`.
+
 - **Only the first playable scene was measured.** Nothing later in the title
   (open areas, driving, streets with traffic) has been run by us: expect it to
   be slower there, as the fork's own README reports for its author's card, and
