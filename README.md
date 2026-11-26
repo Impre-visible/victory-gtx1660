@@ -1,7 +1,7 @@
 # victory-gtx1660
 
 Patches, settings and launch scripts that took a console title from about
-360–410 ms per frame to about 100 ms per frame (about 10 fps) on a
+360–410 ms per frame to about 100–106 ms per frame (about 10 fps) on a
 **GeForce GTX 1660 6 GB under Linux**, on top of the public fork
 [codec-d/cool_fox](https://github.com/codec-d/cool_fox) at commit
 `f4b48ad766ddbec1a1867022cd42f7645b0dd55e`.
@@ -17,8 +17,8 @@ Jump to: [Results](#results) · [Linux](#how-to-reproduce-on-linux) · [Windows]
   own copy of the title.
 - It is not affiliated with or endorsed by the title's developer or publisher,
   nor by the authors of VIctory or cool_fox.
-- One machine, a handful of runs: the ~100 ms figure comes from **three runs so
-  far**; two more validation runs are in progress and this table will be updated.
+- One machine, a handful of runs: the ~100 ms figure comes from **five clean
+  runs** of 4 to 8 minutes of scene each.
 
 ## Results
 
@@ -30,7 +30,7 @@ tool). Details per run in [RESULTS.md](RESULTS.md).
 |---|---|---|---|
 | cool_fox `f4b48ad`, unmodified, its launcher's settings | 360–410 | 2.4–2.8 | 1 (15 min) |
 | + patches 0001–0002, `LEVELS_ON_DEMAND=0`, `TEXTURE_MIP_DROP=2` | 271–291 | 3.4–3.7 | 5 (7–15 min each) |
-| + `CARD_BUFFERS_MB=1024`, `CARD_WINDOWS_MB=768`, `TEXTURE_MIP_DROP=3` | 100–105 | 9.5–9.9 | 3 so far (4–8 min of scene each; medians 102.5, 100.6, 104.3), all clean |
+| + `CARD_BUFFERS_MB=1024`, `CARD_WINDOWS_MB=768`, `TEXTURE_MIP_DROP=3` | 100–106 | 9.4–9.9 | 5 (4–8 min of scene each; medians 102.5, 100.6, 104.3, 106.4, 101.4), all clean |
 
 Machine: GTX 1660 6 GB, Core i7-13700KF, 62 GB RAM, Arch Linux (kernel 6.18
 LTS), NVIDIA driver 620.73.04 (open kernel modules rebuilt with NVIDIA's

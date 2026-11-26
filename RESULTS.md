@@ -72,7 +72,7 @@ that of 0001–0002.
 | 1 (first run) | 600 s asked, 504 s of scene (about 8 min), warm caches | 100–105 ms (9.5–9.9 fps); median of the last 60 lines 102.5 ms; fastest line 90 ms | clean | split: preparing 23–25 ms, on the card 69–75 ms, copying back 13 ms |
 
 Picture: as B, textures one mip level softer (drop 3 instead of 2); heads still
-not drawn. Two further runs of 420 s with the same settings were clean, with medians of 100.6 and 104.3 ms per frame (265 s and 320 s of scene); two more are in progress.
+not drawn. Four further runs of 420 s with the same settings were clean, with medians of 100.6, 104.3, 106.4 and 101.4 ms per frame (264 to 320 s of scene each). The only driver messages were logged at the moment each run was stopped.
 
 
 ## What the gain from B to C is
