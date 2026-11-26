@@ -184,9 +184,46 @@ memory-constrained cards.
 - Windows 10/11 x64
 - Your own copy of the title (this repo contains **no game files**)
 - A Direct3D 12 card with a recent driver
+- **On Windows 10 only:** the D3D12 Agility SDK's `D3D12Core.dll` in
+  `D3D12\` beside `victory.exe` (see [Windows 10 and the Agility
+  SDK](#windows-10-and-the-agility-sdk)). Windows 11's in-box runtime is
+  new enough and does not need it.
 - [Git for Windows](https://git-scm.com/download/win)
 - [Rust](https://rustup.rs) (the toolchain is pinned by the fork and installs itself)
 - Visual Studio Build Tools with **"Desktop development with C++"** and a Windows SDK
+
+### Windows 10 and the Agility SDK
+
+Windows 10's in-box D3D12 runtime stops at shader model 6.5 and refuses the
+root-signature flags every translated pipeline uses
+(`Unsupported bit-flag set (root signature flags c01)`). Without host
+pipelines the title faults during `Game Init` (`0xc0000005` reading
+`[rax+0x68]` in title code), so it looks like a game crash rather than a
+GPU-runtime problem.
+
+Put the `D3D12Core.dll` from the `Microsoft.Direct3D.D3D12` NuGet package
+(1.620.x) in `D3D12\` beside `victory.exe`. `scripts\build.ps1` copies it
+from this repository's `D3D12\D3D12Core.dll` into the build output before
+building, and `cool_fox\apps\victory\build.rs` exports
+`D3D12SDKVersion`/`D3D12SDKPath` on the executable so D3D12 loads it.
+Verify with:
+
+```powershell
+llvm-readobj --coff-exports .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe | Select-String D3D12SDK
+```
+
+Both exports must be listed. (The DLL itself is not in the repository; it is
+a Microsoft runtime redistributable.)
+
+To apply the same fix to another VIctory-derived fork, use the patcher:
+
+```powershell
+python tools\victory_agility_patch.py <fork-root> --d3d12-core C:\path\D3D12Core.dll
+python tools\victory_agility_patch.py --verify-exe <built victory.exe>
+```
+
+It adds the exports, handles an existing `build.rs`, copies the DLL into the
+build output, and can `--revert`. See [tools/README.md](tools/README.md).
 
 ### Step 1 — Clone the repository
 
