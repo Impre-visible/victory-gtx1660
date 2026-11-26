@@ -115,7 +115,17 @@ the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
 
 ## How to reproduce on Windows
 
-**Not tested by us**: all our runs were under Linux. cool_fox itself is
+**Not tested by us**: all our runs were under Linux.
+
+> **Reported problem on Windows with GTX 16 / RTX 20 cards (Turing):** a tester
+> with a GTX 1660 SUPER on Windows 11 reports that the fork does not get past
+> the start screens there with NVIDIA's driver, while it does with the software
+> adapter and under Linux
+> ([report](https://github.com/Marvisak/VIctory/issues/2835#issuecomment-7188866396)).
+> If you have such a card on Windows, expect this; on newer cards it is not
+> reported.
+
+With that said: cool_fox itself is
 developed and played on Windows, and the patches and settings are the same
 there, so this should work, but the figures above are Linux figures. The
 texture and memory settings matter most on cards with 6–8 GB.
