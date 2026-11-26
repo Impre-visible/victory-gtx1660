@@ -236,11 +236,9 @@ static IDLE: std::sync::Mutex<(Vec<Idle>, u64)> = std::sync::Mutex::new((Vec::ne
 /// their preludes and buffers, 12 % of the submitting thread in the opening,
 /// profile cpu-1), and the most upload memory they may keep
 /// between them (a list keeps scratch chunks over a reset only while lists
-/// do not share them, `VICTORY_SCRATCH_POOL=0`). Kept small on low-end hosts:
-/// every idle list holds an allocator, a command list and scratch, and under
-/// commit pressure they are dropped instead of pooled.
+/// do not share them, `VICTORY_SCRATCH_POOL=0`).
 #[cfg(windows)]
-const IDLE_MOST: (usize, u64) = (128, 64 << 20);
+const IDLE_MOST: (usize, u64) = (512, 256 << 20);
 
 /// Whether host lists that have run are used again (on by default;
 /// `VICTORY_LIST_POOL=0`: each is made new and thrown away, as before).
@@ -277,21 +275,7 @@ pub(crate) fn recycle(lists: Vec<Detached>, ran: &[usize]) {
     if !pools() {
         return;
     }
-    let pressured = crate::residency::pressured();
-    if pressured {
-        // Under commit/physical memory pressure, release every idle host list:
-        // each holds an allocator, a command list, scratch upload memory and
-        // possibly a prelude (~5+ MB of commit each). Free them rather than
-        // pooling; new lists are made when pressure eases. The lists handed in
-        // are dropped too (not reset, not pooled).
-        let mut idle = IDLE.lock().unwrap_or_else(|e| e.into_inner());
-        let dropped = std::mem::take(&mut idle.0);
-        idle.1 = 0;
-        drop(idle);
-        drop(dropped);
-        return;
-    }
-    for (i, Detached { mut host, _uploads, _state }) in lists.into_iter().enumerate() {
+    for (i, Detached { host, _uploads, _state }) in lists.into_iter().enumerate() {
         // The descriptor slots and the upload memory its commands named.
         drop(_state);
         drop(_uploads);
@@ -301,9 +285,6 @@ pub(crate) fn recycle(lists: Vec<Detached>, ran: &[usize]) {
         // As the title's reset does: what the list kept for its commands
         // goes, its allocators stay.
         host.reset();
-        // Give the prelude back to the idle pool so preludes do not accumulate
-        // one per pooled host list (~5 MB of commit each).
-        host.release_prelude();
         let bytes = host.scratch_kept();
         let mut idle = IDLE.lock().unwrap_or_else(|e| e.into_inner());
         if idle.0.len() < IDLE_MOST.0 && idle.1 + bytes <= IDLE_MOST.1 {
