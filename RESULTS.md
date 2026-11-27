@@ -208,3 +208,26 @@ missing for you, move the cache folder's `pipelines` aside once and let a run re
 Other trees measured on this machine the same day, built from source, their documented fastest
 settings: rorodev6's megafork 77.7 ms at 960x540 (first minutes); Vice-Tay 272 to 279 ms at
 640x360 with a dark picture (it lacks the texture mip drop a 6 GB card needs, among other things).
+
+### Later the same day: steering from the picture, and the open world
+
+A wall-clock key schedule was not reliable (two runs of four stuck at a gate). Two small additions
+to our local tree fixed that: a key file the input layer re-reads while running (keys to hold now,
+each with an optional duration) and the presented picture written to one file every 30 frames.
+Deciding each move from the latest picture, one 25-minute run went from the first room through the
+whole opening, a playable flashback with aiming and interaction prompts, into the open world:
+driving a boat on a bay, with the minimap and objectives on screen. No device loss, no crash. The
+title's own autosave works: restoring it puts a run back on the boat after about 330 s, which gives
+a repeatable outdoor measurement.
+
+At 768x432, same settings as the plateau table above:
+
+| where | ms per frame |
+|---|---|
+| interiors (rooms, corridors, a crowded hall, dialogues) | 46 to 65 |
+| the boat standing or on open water | 67 to 78 (three runs at 67 to 68 standing) |
+| near a wooded shore | 93 to 120 |
+
+The early depth test changes nothing outdoors either (67.1 standing, 99 to 119 at the shore).
+Known picture defects outdoors: the water close to the boat is black; in one flashback scene a
+character's clothing is blown out to white.
