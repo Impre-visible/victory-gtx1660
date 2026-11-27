@@ -172,3 +172,33 @@ Other observations from the same logs:
 PowerShell 5.1 (the `powershell` that ships with Windows). The error is `NativeCommandError` on
 "Compiling proc-macro2", because of `$ErrorActionPreference = 'Stop'` together with redirected native
 stderr. It builds fine under PowerShell 7: `pwsh -File scripts\build.ps1`.
+
+## Windows, NVIDIA GeForce RTX 3050 8 GB (contributed run, not the authors' machine)
+
+| | |
+|---|---|
+| CPU / RAM | Intel Core i5-12400F (6 cores, 12 threads), 32 GB |
+| GPU | NVIDIA GeForce RTX 3050 8 GB (32-lane waves), Resizable BAR on |
+| OS | Windows 11 (native, no Wine) |
+| Build | this repository's `cool_fox/` tree at `b766ad3`, `cargo build -p victory --release --locked --features diagnostics` |
+| Settings | section D (`CARD_BUFFERS_MB=1024`, `CARD_WINDOWS_MB=256`, `TEXTURE_MIP_DROP=1`, `LEVELS_ON_DEMAND=0`) plus the `scripts/settings.env` speed set, `AMBIENT=0.3`, `AMBIENT_AIR=1.5`, `NAN_SCRUB=1`, `PIPELINE_BOOK=1`; Series S profile; its own `VICTORY_CACHE_DIR` |
+| Scene | first chapter, the boat mission, from the same save every run; Enter pressed by `VICTORY_KEYS` |
+
+Method: shaders translated first (`translate --warm` with `VICTORY_HOST_WAVE=32 VICTORY_HOST_ROVS=1 VICTORY_VIEW_LIMIT=999999`), one run that books the pipelines, `victory warm --used` (1,962 pipelines in 177 s), then two measured runs of 5 minutes. Median of the frame lines with 300 draws or more:
+
+| Run | median | p90 | worst |
+|---|---|---|---|
+| booking run (pipelines not built yet) | 322 ms | 455 ms | 708 ms |
+| measured 1 | 163 ms | 261 ms | 1,142 ms |
+| measured 2 | **108 ms (9.2 fps)** | 180 ms | 2,216 ms |
+
+Split of a heavy frame (measured 1): preparing 60-83 ms, copying back 16-37 ms.
+
+What the picture showed on this card (screenshots kept locally, not attached: they show the title):
+- **Posterized sky and backgrounds** (flat bands of colour) in the cutscene and on the boat. The same bands appear on another VIctory tree when the wave-wide form is denied to four 64-lane compute programs that a 32-lane NVIDIA card otherwise refuses: `5dc3b25986622949`, `6f225b641c5b0708` (water transmission volumetrics), `369cbe906ea72764` (particle visibility), `2cc4c197ee29e291` (screen-space reflection tiles). fxceless/victory-fork `85a93dab` ("the wave-wide form and the host wave's own first lane per program", Felix2180) gives those four the wave-wide form by default; it may be worth porting.
+- **Water black with white blotches** near the boat, and small rectangles in the sky.
+- Faces and hair correct in these runs.
+
+Also seen on other trees, in case it helps: `VICTORY_PIPELINE_WAIT_MS=10000` froze the picture for up to 12 s on cold pipelines (avatarmanz/VIctory-7900XTX issue 143: 150 with `VICTORY_PIPELINE_LOWEST=1` is smoother).
+
+AI-assisted: measured and written with Claude Code.
