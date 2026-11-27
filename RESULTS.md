@@ -106,3 +106,105 @@ read them across PCIe and the CPU checked them after each frame. Raising the cap
 of card-side buffer copies to 1024 MB and copying 768 MB of the title's memory
 windows to the card moved that traffic onto the card; the extra texture mip drop
 makes room for it in 6 GB. No rendering pass is skipped by these three settings.
+
+## 27 November 2026: longer runs, and what they corrected
+
+Same machine (GTX 1660 6 GB, i7-13700KF, Linux, Wine GE-Proton11-6, vkd3d-proton, Series S profile).
+These runs used work that is **not in this repository's patches** (see the list at the end), so
+they are a report, not something `scripts/build.sh` reproduces today.
+
+### Measure for ten minutes, not five
+
+The frame time keeps rising during the first minutes in the world and only then settles. Runs of
+330 s read 10 to 20 ms lower than the plateau. Every figure below is the median over the last
+100 s of a 600 s run, or over a scripted walk of several minutes.
+
+### The card is short of memory, not of power
+
+With the title running, the process holds about 5.2 GB of the 6 GB. `nvidia-smi dmon` then shows
+the card "100 % busy" while drawing only 42 to 47 W (it draws about 120 W under a real load) and
+2 to 4 GB per second crossing PCIe in each direction: the driver keeps moving memory between the
+card and the PC. Consequences, all measured at the plateau, internal render 768x432:
+
+| change | ms per frame |
+|---|---|
+| reference (`CARD_BUFFERS_MB=1024`, `CARD_WINDOWS_MB=256`, mip drop 2) | 59 to 64, drifting upward |
+| mip drop 3 | 59, flat |
+| mip drop 3, `CARD_BUFFERS_MB=640` | **56 to 57, flat** |
+| mip drop 3, `CARD_WINDOWS_MB=1024` (more of the title's memory copied to the card) | 82, drifting |
+| the title's constants heap copied instead of opened in place | 85, drifting |
+
+So on a 6 GB card, copying more to the card makes it slower once the card is full, and the
+single largest item is avatarmanz's "renderer port 1" (the title's constants heap opened in place
+rather than copied): about 27 ms at the plateau here. A governor that only refuses new placements
+above 80 or 85 % of the budget changed nothing (55.8 and 59.3 ms against 57.5): what fills the
+card is already there by then.
+
+Things that did not help at the plateau: skipping the shadow passes (and the picture goes flat),
+a 1280x720 title output instead of 1920x1080 at the same internal size (slower, 68 ms),
+keeping the card awake or not, early depth test for programs that ask for it (no speed change;
+it does remove a dark patch around hair).
+
+### Internal render size
+
+Card time is roughly 37 ms fixed plus 50 ms per megapixel on this card. Sizes must come out as
+whole numbers: a scale of 0.33 of 1080p gives 633.6x356.4 and misplaced rectangles; 0.4
+(768x432), 1/3 written as 0.33333334 (640x360), 0.5 and 0.25 are clean; below 0.25 the title
+faults in its own code.
+
+| internal size | ms per frame |
+|---|---|
+| 1280x720 | 86 to 93 (first minutes; plateau not measured) |
+| 960x540 | 63 to 69 (first minutes) |
+| 768x432 | 56 to 57 (plateau) |
+
+True 720p at 20 fps is out of reach of this card by these numbers.
+
+### Wine on Linux: the server's view list
+
+During loading `wineserver` used about 90 % of a core here, and 22 to 29 % in the world.
+[TaynanGT/Vice-Tay](https://github.com/TaynanGT/Vice-Tay) ships
+`linux/wineserver/view-tree.patch` (mapped views kept in a tree instead of a list; GE-Proton11-6
+does not have it). Built from GE-Proton11-6's exact sources with that one patch and mounted over
+the installed binary inside the sandbox only: the server falls to 0 to 1 % of a core, the world
+is entered about 35 s earlier, and 960x540 read 62.9 ms against 68.4 to 68.6 (one run each side,
+taken at different world times: treat the frame-time part as unconfirmed). Credit to its author.
+
+### Real play is faster than the first scene
+
+All earlier figures were taken with the character standing at the first scene's window. With
+scripted input the character leaves that room, follows another character through corridors and a
+crowded room into an office where a dialogue plays. At 768x432, over 5 to 8 minutes of that:
+
+| run | median ms per frame | worst 5 s line |
+|---|---|---|
+| 1 | 52.9 (18.9 fps) | 164.6 (a scene change) |
+| 2 | 50.2 (19.9 fps) | 72.9 |
+| 3 | 56.0 (17.9 fps) | 130.0 |
+| 4 | 60.7 (16.5 fps) | 87.2 |
+
+against 59 to 66 ms standing at the window in the same runs. The schedule of key presses is
+wall-clock based and two runs of four got stuck at a gate, so this is not yet a benchmark.
+
+### Missing heads: not a code defect here
+
+Characters' heads were missing in about 39 runs of 40 for a day, then present in every run
+(more than 40 so far) after the cache folder's pipeline lists and translated shaders were rebuilt
+from scratch; the old and the new executable both draw them. Translation is deterministic
+(the whole shader library translated three times, identical bytes), so the suspect is the saved
+pipeline lists (which pipelines are made during loading), not the translator. If heads are
+missing for you, move the cache folder's `pipelines` aside once and let a run rebuild it.
+
+### What these runs used beyond this repository
+
+- avatarmanz's renderer port 1 (constants heap in place), behind its switch;
+- a render-scale switch and the title's own upscaler, from trustno1's fork (title-specific, not
+  published here);
+- skipping ray-tracing-only passes, from edsuuu's VI-BR-PORT;
+- the wineserver patch above;
+- a sharpening pass at present (ours), and a shader cache key that covers the translator's build
+  features (ours).
+
+Other trees measured on this machine the same day, built from source, their documented fastest
+settings: rorodev6's megafork 77.7 ms at 960x540 (first minutes); Vice-Tay 272 to 279 ms at
+640x360 with a dark picture (it lacks the texture mip drop a 6 GB card needs, among other things).
