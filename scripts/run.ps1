@@ -10,18 +10,23 @@ param(
     [Parameter(Mandatory)][string]$Exe,
     [Parameter(Mandatory)][string]$Game,
     [ValidateSet('series-s', 'series-x')][string]$Console = 'series-s',
-    [ValidateRange(0, 3)][int]$MipDrop = 1,
+    [ValidateRange(0, 3)][int]$MipDrop = 3,
     [string]$Log = 'info',
     [switch]$KeepEnv
 )
 $settings = [ordered]@{
-    # Memory placement: the three settings behind the step from about 280 to about 100 ms per frame on a 6 GB card.
-    # Measured on 6 GB: drop 1 with CARD_WINDOWS_MB=256. If video memory runs short, use -MipDrop 2 or 3.
-    VICTORY_CARD_BUFFERS_MB     = '1024'
+    # Memory placement: mid-range defaults. The measured GTX 1660 value of
+    # CARD_BUFFERS_MB=1024 can exhaust commit on 6 GB laptop cards; 512 leaves
+    # more headroom. MipDrop=3 keeps textures soft enough to fit.
+    VICTORY_CARD_BUFFERS_MB     = '512'
     VICTORY_CARD_WINDOWS_MB     = '256'
     VICTORY_TEXTURE_MIP_DROP    = "$MipDrop"
-    VICTORY_LEVELS_ON_DEMAND    = '0'
+    VICTORY_LEVELS_ON_DEMAND    = '1'
     VICTORY_CARD_BUFFERS_MIN_KB = '64'
+    # Commit-pressure guards for Windows: keep idle staging blocks and preludes low
+    # so commit headroom isn't exhausted before the scene runs.
+    VICTORY_STAGING_KEPT        = '2'
+    VICTORY_MAX_PRELUDES        = '16'
     # The fork's stand-in for ray-traced light (a skip: lighting is approximate).
     VICTORY_AMBIENT             = '0.8'
     VICTORY_AMBIENT_AIR         = '1.5'
@@ -44,6 +49,9 @@ $settings = [ordered]@{
     # "info" prints the frame statistics line ("... fps, ... ms/frame (... preparing ...)") that RESULTS.md
     # quotes; it exists only in a build made with --features diagnostics (README, Windows, step 3).
     VICTORY_LOG                 = $Log
+    # Report the host's display size (1080p here) rather than defaulting to
+    # 4K; the title otherwise renders a 3840x2160 scene the window shrinks.
+    VICTORY_DISPLAY_MODE        = '1920x1080'
 }
 if (-not (Test-Path $Exe))  { Write-Host "No $Exe. Build it first (README.md, Windows)."; exit 2 }
 if (-not (Test-Path $Game)) { Write-Host "No $Game. Pass the executable of your own copy of the title."; exit 2 }

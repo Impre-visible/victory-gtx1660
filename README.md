@@ -1,8 +1,8 @@
 # victory-gtx1660
 
 Patches, settings and launch scripts that took a console title from about
-360–410 ms per frame to about 100–106 ms per frame (about 10 fps) on a
-**GeForce GTX 1660 6 GB under Linux**, on top of the public fork
+360–410 ms per frame to about 100–106 ms per frame (about 10 fps) on our
+test machine under Linux, on top of the public fork
 [codec-d/cool_fox](https://github.com/codec-d/cool_fox) at commit
 `f4b48ad766ddbec1a1867022cd42f7645b0dd55e`.
 
@@ -20,9 +20,11 @@ Jump to: [Results](#results) · [Linux](#how-to-reproduce-on-linux) · [Windows]
 
 ## What this is and is not
 
-- It is a small set of patches (`patches/`), a settings file and launch scripts
-  for Linux and Windows (`scripts/`), and the measurements behind them (`RESULTS.md`).
-- It is **not** the fork itself: clone cool_fox yourself and apply the patches.
+- It is the cool_fox fork source (`cool_fox/`), already carrying patches
+  0001–0002, plus the remaining patches (`patches/`), a settings file and
+  launch scripts for Linux and Windows (`scripts/`), and the measurements
+  behind them (`RESULTS.md`). Clone this repository alone and nothing else
+  needs downloading — not the fork, not any patch — except the game title.
 - It contains **no game files, code, assets, captures or logs**. You need your
   own copy of the title.
 - It is not affiliated with or endorsed by the title's developer or publisher,
@@ -43,7 +45,7 @@ tool). Details per run in [RESULTS.md](RESULTS.md).
 | + `CARD_BUFFERS_MB=1024`, `CARD_WINDOWS_MB=256`, `TEXTURE_MIP_DROP=1` (**current settings**: sharper textures, same speed) | 98–112 | 9–10 | 5 (4.5–6 min of scene each; medians 98, 112.2, 101.9, 106, 107.7), all clean |
 | the same with `CARD_WINDOWS_MB=768`, `TEXTURE_MIP_DROP=3` (first settings found) | 100–106 | 9.4–9.9 | 5 (4–8 min of scene each; medians 102.5, 100.6, 104.3, 106.4, 101.4), all clean |
 
-Machine: GTX 1660 6 GB, Core i7-13700KF, 62 GB RAM, Arch Linux (kernel 6.18
+Machine: our test machine — Core i7-13700KF, 62 GB RAM, Arch Linux (kernel 6.18
 LTS), NVIDIA driver 620.73.04 (open kernel modules rebuilt with NVIDIA's
 [PR #1542](https://github.com/NVIDIA/open-gpu-kernel-modules/pull/1542) against
 random soft lockups, issue #1540), Wine from GE-Proton11-6 with vkd3d-proton
@@ -51,13 +53,12 @@ from Proton Experimental, Microsoft's `d3dcompiler_47.dll` in the prefix.
 
 The last step moves memory, it does not skip work: copies of the title's
 buffers and memory windows are kept in the card's memory instead of the PC's,
-and texture copies start one mip level further down so that this fits in 6 GB.
+and texture copies start one mip level further down so that this fits in the
+card's memory.
 
 ## Known defects (in this configuration)
 
-- **Cards with less than 6 GB are below what was measured.** The memory
-  settings reserve about 1.8 GB of video memory for copies of the title's
-  buffers on top of textures; on 6 GB that just fits (one texture level
+- **Cards with less than the measured card's memory are below what was measured.** The memory settings reserve about 1.8 GB of video memory for copies of the title's buffers on top of textures; on the measured card that just fits (one texture level
   sharper already costs 15 %). On a 4 GB card they overflow: one user reports
   about 3 fps and a black picture. Untested starting point for 4 GB:
   `VICTORY_TEXTURE_MIP_DROP=3`, `VICTORY_CARD_BUFFERS_MB=1024`,
@@ -84,7 +85,7 @@ and texture copies start one mip level further down so that this fits in 6 GB.
   limits, the integer buffer view path (`patches/optional/0007`).
 - **Ray-traced lighting is not computed**: the fork's ambient-light stand-in
   (`VICTORY_AMBIENT`) replaces it, so lighting and shadows are approximate.
-- **Textures start one mip level down** (`VICTORY_TEXTURE_MIP_DROP=1`; with 3 they are visibly softer; 0 does not fit in 6 GB next to the buffer copies) — compare with drop 2
+- **Textures start one mip level down** (`VICTORY_TEXTURE_MIP_DROP=1`; with 3 they are visibly softer; 0 does not fit next to the buffer copies on the measured card) — compare with drop 2
   (which gives the 271–291 ms row).
 - **The start screen was not passed with the monitors awake** on this setup
   (unexplained). The runs were made with the screens put to sleep with DPMS
@@ -111,37 +112,41 @@ a Proton build, `bubblewrap`, systemd (for the memory cap), and to build:
 the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
 `clang`, `lld`, `llvm` and [xwin](https://github.com/Jake-Shadle/xwin).
 
-1. Get the fork at the pinned commit:
+1. Build (cross-build from Linux; `xwin splat --use-winsysroot-style` once
+   for the Windows SDK, accepting its licence). The vendored `cool_fox/`
+   tree already carries patches 0001–0002, so nothing needs cloning or
+   `git am`-ing — just this repository:
    ```sh
-   git clone https://github.com/codec-d/cool_fox
-   cd cool_fox
-   git checkout -b gtx1660 f4b48ad766ddbec1a1867022cd42f7645b0dd55e
+   # Point at the directory where xwin splat was installed
+   export XWIN_DIR=/path/to/xwin-splat
+
+   # Build victory.exe (cross-build from Linux)
+   scripts/build.sh
    ```
-2. Apply the patches (`git am` needs a git identity configured):
+   The result is `cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe`.
+   Optional patches (`patches/optional/`, diagnostics and experiments) can be
+   applied on top with `git apply` inside `cool_fox/` if you want them:
    ```sh
-   git am /path/to/victory-gtx1660/patches/*.patch
-   # optional, diagnostics and experiments:
-   git am /path/to/victory-gtx1660/patches/optional/*.patch
+   cd cool_fox && git apply ../patches/optional/0003-*.patch && cd ..
    ```
-3. Build (cross-build from Linux; `xwin splat --use-winsysroot-style` once
-   for the Windows SDK, accepting its licence):
-   ```sh
-   XWIN_DIR=/path/to/xwin-splat /path/to/victory-gtx1660/scripts/build.sh
-   ```
-   The result is `target/x86_64-pc-windows-msvc/release/victory.exe`.
-4. Prepare a Wine prefix: copy `d3d12.dll` and `d3d12core.dll` from
+2. Prepare a Wine prefix: copy `d3d12.dll` and `d3d12core.dll` from
    vkd3d-proton (we used the one shipped with Proton Experimental) and
    `dxgi.dll` from DXVK into its `system32`, and install Microsoft's
    `d3dcompiler_47.dll` (`winetricks d3dcompiler_47`); without it the
    fork's indirect-argument clamp shader does not compile under Wine and
    indirect draws are dropped.
-5. Run with the settings of `scripts/settings.env`:
+3. Run with the settings of `scripts/settings.env`:
    ```sh
-   VICTORY_EXE=/path/to/cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe \
-   GAME_EXE=/path/to/your/own/copy/<its executable> \
-   PROTON_DIR=/path/to/GE-Proton11-6/files \
-   WINEPREFIX=/path/to/prefix WORK_DIR=/path/to/workdir DPMS=1 \
-   /path/to/victory-gtx1660/scripts/run.sh 600
+   # Set the required paths and environment variables
+   export VICTORY_EXE="$PWD/cool_fox/target/x86_64-pc-windows-msvc/release/victory.exe"
+   export GAME_EXE="/path/to/your/own/copy/<its executable>"
+   export PROTON_DIR="/path/to/GE-Proton11-6/files"
+   export WINEPREFIX="/path/to/prefix"
+   export WORK_DIR="/path/to/workdir"
+   export DPMS=1
+
+   # Run the game
+   scripts/run.sh 600
    ```
    The run is sandboxed (no network, read-only system except `WORK_DIR` and
    the prefix). The log goes to `WORK_DIR/logs/`; at the end the script prints
@@ -153,7 +158,7 @@ the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
 **Not tested by us**: all our runs were under Linux.
 
 > **The patches alone do not give the ~100 ms figure.** Most of the gain comes
-> from three settings (`VICTORY_CARD_BUFFERS_MB=1024` above all, with `VICTORY_CARD_WINDOWS_MB=256`,
+> from three settings (`VICTORY_CARD_BUFFERS_MB` above all, with `VICTORY_CARD_WINDOWS_MB=256`,
 > `VICTORY_TEXTURE_MIP_DROP=1` and `VICTORY_LEVELS_ON_DEMAND=0`). Start the
 > title **only with `scripts\run.cmd` (or `run.ps1`)**. Starting `victory.exe`
 > yourself, or cool_fox's own `Play-VIctory.cmd`, runs without them
@@ -169,78 +174,258 @@ the Rust toolchain pinned by cool_fox with the `x86_64-pc-windows-msvc` target,
 > If you have such a card on Windows, expect this; on newer cards it is not
 > reported.
 
-With that said: cool_fox itself is
-developed and played on Windows, and the patches and settings are the same
-there, so this should work, but the figures above are Linux figures. The
-texture and memory settings matter most on cards with 6–8 GB.
+With that said: cool_fox itself is developed and played on Windows, and the
+patches and settings are the same there, so this should work, but the figures
+above are Linux figures. The texture and memory settings matter most on
+memory-constrained cards.
 
-You need: Windows 10/11 x64, your own copy of the title, a Direct3D 12 card
-with a recent driver, [Git for Windows](https://git-scm.com/download/win),
-[Rust](https://rustup.rs) (the toolchain is pinned by the fork and installs
-itself), and the Visual Studio Build Tools with "Desktop development with C++"
-and a Windows SDK.
+### What you need
 
-1. Get this repository and the fork at the pinned commit (PowerShell):
+- Windows 10/11 x64
+- Your own copy of the title (this repo contains **no game files**)
+- A Direct3D 12 card with a recent driver
+- **On Windows 10 only:** the D3D12 Agility SDK's `D3D12Core.dll` in
+  `D3D12\` beside `victory.exe` (see [Windows 10 and the Agility
+  SDK](#windows-10-and-the-agility-sdk)). Windows 11's in-box runtime is
+  new enough and does not need it.
+- [Git for Windows](https://git-scm.com/download/win)
+- [Rust](https://rustup.rs) (the toolchain is pinned by the fork and installs itself)
+- Visual Studio Build Tools with **"Desktop development with C++"** and a Windows SDK
+
+### Windows 10 and the Agility SDK
+
+Windows 10's in-box D3D12 runtime stops at shader model 6.5 and refuses the
+root-signature flags every translated pipeline uses
+(`Unsupported bit-flag set (root signature flags c01)`). Without host
+pipelines the title faults during `Game Init` (`0xc0000005` reading
+`[rax+0x68]` in title code), so it looks like a game crash rather than a
+GPU-runtime problem.
+
+Put the `D3D12Core.dll` from the `Microsoft.Direct3D.D3D12` NuGet package
+(1.620.x) in `D3D12\` beside `victory.exe`. `scripts\build.ps1` copies it
+from this repository's `D3D12\D3D12Core.dll` into the build output before
+building, and `cool_fox\apps\victory\build.rs` exports
+`D3D12SDKVersion`/`D3D12SDKPath` on the executable so D3D12 loads it.
+Verify with:
+
+```powershell
+llvm-readobj --coff-exports .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe | Select-String D3D12SDK
+```
+
+Both exports must be listed. (The DLL itself is not in the repository; it is
+a Microsoft runtime redistributable.)
+
+To apply the same fix to another VIctory-derived fork, use the patcher:
+
+```powershell
+python tools\victory_agility_patch.py <fork-root> --d3d12-core C:\path\D3D12Core.dll
+python tools\victory_agility_patch.py --verify-exe <built victory.exe>
+```
+
+It adds the exports, handles an existing `build.rs`, copies the DLL into the
+build output, and can `--revert`. See [tools/README.md](tools/README.md).
+
+### Step 1 — Clone the repository
+
+```powershell
+git clone https://github.com/WASDeKeys/victory-gtx1660
+cd victory-gtx1660
+```
+
+The vendored `cool_fox/` tree already carries patches 0001–0002, so nothing
+needs cloning or `git am`-ing besides this repository.
+
+Optional patches (`patches/optional/`, diagnostics and experiments) can be
+applied on top if you want them:
+
+```powershell
+cd cool_fox; git apply ..\patches\optional\0003-*.patch; cd ..
+```
+
+### Step 2 — Build victory.exe
+
+From inside the repo folder:
+
+```powershell
+# Build victory.exe in release mode with diagnostics feature.
+# This runs: cargo build -p victory --target x86_64-pc-windows-msvc --release --locked --features diagnostics
+.\scripts\build.ps1
+```
+
+`build.ps1` accepts optional cargo args; with no args it uses
+`--release --locked --features diagnostics`. The diagnostics feature is required
+— without it there is no frame statistics line in the log, so you cannot
+measure frame time.
+
+First build: **10–20 minutes**. Later builds are much faster (incremental).
+
+When it finishes, the result is:
+
+```
+cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe
+```
+
+Verify it exists:
+
+```powershell
+ls cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe
+```
+
+#### Windows build troubleshooting
+
+If `build.ps1` fails, check these in order:
+
+1. **Rust toolchain not installed.** The repo pins Rust 1.98.1 via `cool_fox/rust-toolchain.toml`. Run:
    ```powershell
-   git clone https://github.com/Impre-visible/victory-gtx1660
-   git clone https://github.com/codec-d/cool_fox
-   cd cool_fox
-   git checkout -b gtx1660 f4b48ad766ddbec1a1867022cd42f7645b0dd55e
+   rustup toolchain install 1.98.1 --profile minimal
+   rustup target add x86_64-pc-windows-msvc
    ```
-2. Apply the two patches. `--keep-cr` matters if your Git converts line
-   endings; if `git am` refuses, run `git am --abort`, then
-   `git config core.autocrlf false`, `git reset --hard` and try again:
-   ```powershell
-   git am --keep-cr ..\victory-gtx1660\patches\0001-*.patch ..\victory-gtx1660\patches\0002-*.patch
-   ```
-   (`git am` needs `git config user.name` and `user.email` to be set.)
-3. Build (10–20 minutes the first time), with the diagnostics feature as in
-   our runs (it prints the frame statistics line used to measure; without it
-   there is no such line in the log):
-   ```powershell
-   cargo build --release --locked -p victory --features diagnostics
-   ```
-   The result is `target\release\victory.exe`.
-4. Run with the measured settings (`run.cmd` starts `run.ps1` without
-   touching PowerShell's script policy):
-   ```powershell
-   ..\victory-gtx1660\scripts\run.cmd -Exe .\target\release\victory.exe -Game "D:\path\to\your\copy\<its executable>"
-   ```
-   The script first clears every `VICTORY_*` variable left in your
-   environment (other forks' guides set some system-wide), then prints
-   "victory-gtx1660: settings in effect:" with every value. **Check that this
-   list shows `VICTORY_CARD_BUFFERS_MB=1024`, `VICTORY_CARD_WINDOWS_MB=256`,
-   `VICTORY_TEXTURE_MIP_DROP=1` and `VICTORY_LEVELS_ON_DEMAND=0`** before
-   comparing frame rates.
-   If video memory runs short (stutter, textures missing), add `-MipDrop 2` or `3`;
-   `-Console series-x` selects the larger console profile (slower).
-5. The first run translates every shader and compiles pipelines: expect
-   several slow minutes and stutter; judge the speed on the second run. The
-   fork keeps its caches under `%LOCALAPPDATA%\victory\cache` unless
-   `VICTORY_CACHE_DIR` is set (see `victory.example.toml` in the fork).
+   Then confirm `cargo --version` and `rustc --version` work.
 
-To change one setting, set it in the same window and call the script with
-`-KeepEnv` (`$env:VICTORY_TEXTURE_MIP_DROP = '1'`; without `-KeepEnv` the
-script clears it); it then names every value that differs from the measured
-one. What each setting does is documented in `scripts/settings.env`.
+2. **Missing linker (`NativeCommandError`, `link.exe` not found).** Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with the **"Desktop development with C++"** workload, which includes `link.exe` and the Windows SDK. Then restart PowerShell and re-run `build.ps1`.
 
-**How to compare frame rates with ours.** Our figures are the median of the
-log's frame statistics line (`... fps, ... ms/frame (... preparing ...)`,
-diagnostics build, `VICTORY_LOG=info`, which `run.ps1` sets) over the steady
-first scene, Series S profile, second run or later (warm caches), with no
-frame generation. A figure from another fork is often taken differently:
-some use the Series X profile with a capped output resolution
-(`VICTORY_RESOLUTION=1920x1080`), a lower render scale, skipped ray-tracing
-passes, a window-title counter, or a driver's frame generation (which
-doubles what you see, not what the game computes). Compare like with like.
+3. **Cargo can't download crates (network/registry error).** If you're behind a proxy or offline at build time, set a cargo proxy or pre-fetch crates. The `--locked` flag requires every crate to already be in `%USERPROFILE%\.cargo\registry`.
 
-**Whether the memory settings took effect** shows in the same log (diagnostics
-build): the line "host copies in the card's memory: N copies X MB ..." should
-read about 1,000 MB or more once the scene runs. Copies go to the card only
-while a fifth of the card's memory budget is free; on Windows that budget is
-what the system grants this process (other programs and the desktop take their
-share), so on a 6 GB card fewer copies may fit than under Linux. If X stays
-near 500 MB, close other programs that use the GPU or try `-MipDrop 3`.
+4. **Windows long-path issues.** Rust paths can exceed Windows' 260-char limit. Enable long paths:
+   ```powershell
+   Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -Value 1
+   ```
+   Then reboot and retry.
+
+5. **Cargo errors on `proc-macro2` or similar early crates.** Usually means the Rust toolchain or the `x86_64-pc-windows-msvc` target is partially installed. Re-run step 1 and make sure both are installed for the same user account that runs `build.ps1`.
+
+### Step 3 — Run the game
+
+Launch **only** through `scripts\run.cmd` (or `run.ps1`) so the memory
+settings are applied. Starting `victory.exe` yourself, or cool_fox's own
+`Play-VIctory.cmd`, runs without them — that is the 271–291 ms row, not the
+100 ms one.
+
+```powershell
+# Run victory.exe with your own copy of the game executable
+.\scripts\run.cmd -Exe .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe -Game "D:\path\to\your\copy\<its executable>"
+```
+
+Replace `D:\path\to\your\copy\<its executable>` with the real path to your
+game's `.exe`. Keep the quotes if the path has spaces.
+
+The script clears leftover `VICTORY_*` variables, applies the settings, and
+prints `victory-gtx1660: settings in effect:` with every value. Check this
+list before comparing frame rates.
+
+### Step 4 — Expect the first run to be slow
+
+The first run translates every shader and compiles pipelines: expect several
+slow minutes and stutter. **Judge the speed on the second run or later**,
+when caches are warm. The fork keeps its caches under
+`%LOCALAPPDATA%\victory\cache` unless `VICTORY_CACHE_DIR` is set (see
+`victory.example.toml` in the fork).
+
+### Tuning for mid-range and laptop cards
+
+`launch.ps1` now defaults to the low-memory OOM-safe profile
+(`CARD_BUFFERS_MB=512`, `MipDrop=3`, `LEVELS_ON_DEMAND=1`,
+`STAGING_KEPT=4`, `MAX_PRELUDES=32`) so the game starts without
+`0x8007000E` OOM crashes on 6 GB / low-RAM cards. These are the same
+Windows OOM mitigation values below.
+
+If you want the sharper-texture measured profile instead (faster but more
+memory, ~100 ms/frame on the measured card):
+
+```powershell
+$env:VICTORY_CARD_BUFFERS_MB = '1024'
+$env:VICTORY_CARD_WINDOWS_MB = '256'
+$env:VICTORY_TEXTURE_MIP_DROP = '1'
+$env:VICTORY_LEVELS_ON_DEMAND = '1'
+$env:VICTORY_STAGING_KEPT = '2'
+$env:VICTORY_MAX_PRELUDES = '16'
+
+.\scripts\run.cmd -Exe .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe -Game "D:\path\to\your\copy\<its executable>" -KeepEnv
+```
+
+`-KeepEnv` keeps the variables you set instead of letting the script clear
+them. If video memory runs short (stutter, textures missing), try
+`-MipDrop 2` or `-MipDrop 3`. `-Console series-x` selects the larger console
+profile (slower).
+
+### Measured 8 GB NVIDIA performance profile
+
+For an 8 GB NVIDIA card with 32 GB of system RAM, `scripts\run-perf.ps1` (or
+`SETTINGS=scripts/settings-perf.env scripts/run.sh` on Linux) applies a
+measured profile: 1280x720 output, 0.667 render scale, 1536 MB of card-side
+title buffers with a 64 KiB floor, 1536 MB of texture copies, BAR/CPU-mapped
+windows, and the frame-critical threads kept on the fast cores.
+
+```powershell
+# optional once: game-side profile (uncap FPS, RT/grass/SSR off, sharp textures)
+python tools\tweak_game_settings.py --profile sharp
+
+.\scripts\run-perf.ps1 -Exe .\cool_fox\target\x86_64-pc-windows-msvc\release\victory.exe `
+    -Game "D:\path\to\your\copy\<its executable>"
+```
+
+On the measured 8 GB card this gave a sharp 720p image at **45.3 ms/frame
+median, 50.9 ms p90**, with no exceptions or device removal, using about
+6.1 of 6.9 GB of VRAM. A 640x360 profile reached about 30 fps but was too
+blurry and is not the default. `VICTORY_RENDER_SCALE`, `VICTORY_OWN_UPSCALER`,
+`VICTORY_SEND_KEPT_MB`, and the RT-skip names are read by the newer 8 GB
+fork; older trees ignore those variables and still use the rest of the
+profile. Run `python tools\tweak_game_settings.py --restore` to undo the
+game-side profile.
+
+### Windows OOM mitigation (now the default in `launch.ps1`)
+
+A Windows run hit `0x8007000E` OOM ("no host list for a state prelude") with
+private memory climbing to ~15.7 GB and commit headroom exhausted. The
+following overrides reduce commit pressure and are now set automatically by
+`launch.ps1` and `timed-run.ps1`:
+
+| Variable | Value | Purpose |
+|---|---|---|
+| `VICTORY_CARD_BUFFERS_MB` | `512` | Card-side buffer copy cap (lowered from measured 1024 for mid-range cards) |
+| `VICTORY_CARD_BUFFERS_MIN_KB` | `64` | Pool every title buffer, no minimum skip |
+| `VICTORY_LEVELS_ON_DEMAND` | `1` | Textures made level by level on demand |
+| `VICTORY_RAW_VIEWS` | `0` | Raw views off |
+| `VICTORY_GROUP_SYNC` | `2` | Group sync level |
+| `VICTORY_WAVE_LOCAL` | `idiom` | Wave local mode |
+| `VICTORY_WAVE_WIDE` | `` (empty) | Wave wide mode off |
+| `VICTORY_PIPELINE_BOOK` | `1` | Pipeline book enabled |
+| `VICTORY_STAGING_KEPT` | `4` | Idle staging blocks kept (default 8; frees ~256 MiB commit) |
+| `VICTORY_MAX_PRELUDES` | `32` | Idle preludes kept (default 64; each ~5 MB commit; 0 keeps none) |
+
+`VICTORY_STAGING_KEPT` overrides the hard-coded `STAGING_KEPT = 8` idle
+staging blocks (each 64 MiB of PC commit memory). Cutting to 4 frees ~256 MiB
+earlier.
+
+`VICTORY_MAX_PRELUDES` caps idle preludes kept (default 64). Each prelude is
+one command allocator plus one closed command list — about 5 MB of PC commit
+memory. Used preludes now go back to a pool (`PRELUDE_IDLE`) and are reused;
+`PreludeSlot::Drop` returns a prelude to the pool while idle count is under
+`VICTORY_MAX_PRELUDES`, above that it is released.
+
+### How to compare frame rates with ours
+
+Our figures are the median of the log's frame statistics line
+(`... fps, ... ms/frame (... preparing ...)`, diagnostics build,
+`VICTORY_LOG=info`, which `run.ps1` sets) over the steady first scene, Series
+S profile, second run or later (warm caches), with no frame generation.
+
+A figure from another fork is often taken differently: some use the Series X
+profile with a capped output resolution (`VICTORY_RESOLUTION=1920x1080`),
+a lower render scale, skipped ray-tracing passes, a window-title counter, or
+a driver's frame generation (which doubles what you see, not what the game
+computes). Compare like with like.
+
+### Whether the memory settings took effect
+
+Shows in the same log (diagnostics build): the line
+"host copies in the card's memory: N copies X MB ..." should read about
+1,000 MB or more once the scene runs. Copies go to the card only while a
+fifth of the card's memory budget is free; on Windows that budget is what the
+system grants this process (other programs and the desktop take their share),
+so fewer copies may fit than under Linux. If X stays near 500 MB, close other
+programs that use the GPU or try `-MipDrop 3`.
+
 If something goes wrong, compare with the fork's own launcher
 (`Play-VIctory.cmd` in cool_fox) to tell a problem of these patches from one
 of the fork.
